@@ -107,6 +107,7 @@ class TestSlackExecApproval:
         blocks = kwargs["blocks"]
         assert len(blocks) == 2
         assert blocks[0]["type"] == "section"
+        assert "Approval needed before Node One runs a command" in blocks[0]["text"]["text"]
         assert "rm -rf /important" in blocks[0]["text"]["text"]
         assert "dangerous deletion" in blocks[0]["text"]["text"]
         assert blocks[1]["type"] == "actions"
@@ -120,6 +121,31 @@ class TestSlackExecApproval:
         # Each button carries the session key as value
         for e in elements:
             assert e["value"] == "agent:main:slack:group:C1:1111"
+
+    @pytest.mark.asyncio
+    async def test_execute_code_message_leads_with_plain_english(self):
+        adapter = _make_adapter()
+        mock_client = adapter._team_clients["T1"]
+        mock_client.chat_postMessage = AsyncMock(return_value={"ts": "1234.5678"})
+
+        await adapter.send_exec_approval(
+            chat_id="C1",
+            command="execute_code <<'PY'\nprint('hello')\nPY",
+            session_key="agent:main:slack:group:C1:1111",
+            description=(
+                "execute_code script execution. The script can spawn subprocesses "
+                "or mutate files without passing through terminal command approval; "
+                "approval is one-shot for this run."
+            ),
+        )
+
+        kwargs = mock_client.chat_postMessage.call_args[1]
+        section_text = kwargs["blocks"][0]["text"]["text"]
+        assert "Approval needed before Node One runs a local script" in section_text
+        assert "This is a real safety gate" in section_text
+        assert "Technical preview" in section_text
+        assert "execute_code <<'PY'" in section_text
+        assert kwargs["text"] == "⚠️ Approval needed before Node One runs a local script"
 
     @pytest.mark.asyncio
     async def test_sends_in_thread(self):

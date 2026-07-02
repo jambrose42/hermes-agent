@@ -3253,9 +3253,31 @@ class SlackAdapter(BasePlatformAdapter):
             # ``command``, so budget the preview against the fixed parts
             # instead of a flat truncation that overflows once the header +
             # reason are added.
-            header = ":warning: *Command Approval Required*\n"
-            reason = f"Reason: {description[:500]}"
-            budget = 3000 - len(header) - len(reason) - len("``````\n") - len("...")
+            is_code_execution = (
+                command.lstrip().startswith("execute_code")
+                or "execute_code script execution" in description
+            )
+            if is_code_execution:
+                intro = (
+                    ":warning: *Approval needed before Node One runs a local script*\n\n"
+                    "Node One wants to run Python on the Hermes VPS to continue this task.\n"
+                    "This is a real safety gate: a script can read/write files or start subprocesses, "
+                    "so Hermes asks before it runs.\n"
+                    "Approve only if this matches what you asked Node One to do.\n\n"
+                    f"*Why Hermes paused:* {description[:500]}\n\n"
+                    "*Technical preview:*\n"
+                )
+                fallback_text = "⚠️ Approval needed before Node One runs a local script"
+            else:
+                intro = (
+                    ":warning: *Approval needed before Node One runs a command*\n\n"
+                    "Hermes paused before running this command.\n"
+                    "Approve only if this matches what you asked Node One to do.\n\n"
+                    f"*Why Hermes paused:* {description[:500]}\n\n"
+                    "*Technical preview:*\n"
+                )
+                fallback_text = "⚠️ Approval needed before Node One runs a command"
+            budget = 3000 - len(intro) - len("``````") - len("...")
             cmd_preview = command[:budget] + "..." if len(command) > budget else command
 
             blocks = [
@@ -3263,7 +3285,7 @@ class SlackAdapter(BasePlatformAdapter):
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": f"{header}```{cmd_preview}```\n{reason}",
+                        "text": f"{intro}```{cmd_preview}```",
                     },
                 },
                 {
@@ -3271,7 +3293,7 @@ class SlackAdapter(BasePlatformAdapter):
                     "elements": [
                         {
                             "type": "button",
-                            "text": {"type": "plain_text", "text": "Allow Once"},
+                            "text": {"type": "plain_text", "text": "Allow This Run"},
                             "style": "primary",
                             "action_id": "hermes_approve_once",
                             "value": session_key,
@@ -3301,7 +3323,7 @@ class SlackAdapter(BasePlatformAdapter):
 
             kwargs: Dict[str, Any] = {
                 "channel": chat_id,
-                "text": f"⚠️ Command approval required: {cmd_preview[:100]}",
+                "text": fallback_text,
                 "blocks": blocks,
             }
             if thread_ts:
